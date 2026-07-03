@@ -39,7 +39,11 @@ const state = {
     serialPort: null,
     serialReader: null,
     serialWriter: null,
-    serialReadActive: false
+    serialReadActive: false,
+
+    // ─ Custom uploaded .js file (overrides the generated script when set) ─
+    customScriptCode: null,
+    customScriptName: null
 };
 
 // ─── Simulator State ───────────────────────────────────────────
@@ -144,6 +148,16 @@ function setupEventListeners() {
     document.getElementById('btnBurn').addEventListener('click', burnScript);
     document.getElementById('btnDownload').addEventListener('click', downloadScript);
     document.getElementById('btnRestoreDefaults').addEventListener('click', restoreDefaults);
+
+    // ★ Upload JS ★
+    document.getElementById('btnUploadJs').addEventListener('click', () => {
+        document.getElementById('fileUploadJs').click();
+    });
+    document.getElementById('fileUploadJs').addEventListener('change', e => {
+        const file = e.target.files && e.target.files[0];
+        handleUploadJsFile(file);
+    });
+    document.getElementById('btnRevertGenerated').addEventListener('click', revertToGeneratedScript);
 
     // ★ Diagnostic modal triggers ★
     document.getElementById('btnDiagnostic').addEventListener('click', openDiagnosticModal);
@@ -292,11 +306,24 @@ function onEvent(event) {
 `;
 }
 
+/** Returns whichever code should actually be sent to the device / downloaded:
+ *  a manually uploaded .js file if one is loaded, otherwise the UI-generated script. */
+function getActiveScriptCode() {
+    return state.customScriptCode !== null ? state.customScriptCode : generateMagiScript();
+}
+
 function updateCodePreview() {
-    const code = generateMagiScript();
+    const code = getActiveScriptCode();
     const block = document.getElementById('codeBlock');
     block.textContent = code;
     if (window.Prism) Prism.highlightElement(block);
+
+    const label = document.getElementById('codeTitleLabel');
+    if (state.customScriptCode !== null) {
+        label.innerHTML = `Custom App: <code>${escHtml(state.customScriptName || 'uploaded.js')}</code>`;
+    } else {
+        label.innerHTML = 'Generated App: <code>remote_keypad.js</code>';
+    }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -329,12 +356,66 @@ function restoreDefaults() {
 }
 
 function downloadScript() {
-    const code = generateMagiScript();
+    const code     = getActiveScriptCode();
+    const filename = state.customScriptCode !== null ? (state.customScriptName || 'uploaded.js') : 'remote_keypad.js';
     const blob = new Blob([code], { type: 'text/javascript' });
     const url  = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'remote_keypad.js';
+    const a = document.createElement('a'); a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    logToConsole("Downloaded: remote_keypad.js");
+    logToConsole(`Downloaded: ${filename}`);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  UPLOAD JS (load a local .js file to program the remote)
+// ══════════════════════════════════════════════════════════════
+const MAX_UPLOAD_JS_SIZE = 200 * 1024; // 200 KB safety cap
+
+function handleUploadJsFile(file) {
+    if (!file) return;
+
+    if (!/\.js$/i.test(file.name)) {
+        logToConsole(`[Upload JS] "${file.name}" is not a .js file.`, "error");
+        return;
+    }
+    if (file.size > MAX_UPLOAD_JS_SIZE) {
+        logToConsole(`[Upload JS] "${file.name}" is too large (${file.size} bytes, max ${MAX_UPLOAD_JS_SIZE}).`, "error");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        state.customScriptCode = reader.result;
+        state.customScriptName = file.name;
+
+        document.getElementById('customScriptFilename').textContent = file.name;
+        document.getElementById('customScriptBanner').classList.remove('hidden');
+        document.getElementById('btnRevertGenerated').classList.remove('hidden');
+
+        updateCodePreview();
+
+        // Jump to the code tab so the loaded file is immediately visible
+        document.getElementById('tabBtnCode').click();
+
+        logToConsole(`[Upload JS] Loaded "${file.name}" (${file.size} bytes). This file will be sent when you click "Upload & Program Remote".`, "success");
+    };
+    reader.onerror = () => {
+        logToConsole(`[Upload JS] Failed to read "${file.name}": ${reader.error}`, "error");
+    };
+    reader.readAsText(file);
+}
+
+function revertToGeneratedScript() {
+    if (state.customScriptCode === null) return;
+    const name = state.customScriptName;
+    state.customScriptCode = null;
+    state.customScriptName = null;
+
+    document.getElementById('customScriptBanner').classList.add('hidden');
+    document.getElementById('btnRevertGenerated').classList.add('hidden');
+    document.getElementById('fileUploadJs').value = '';
+
+    updateCodePreview();
+    logToConsole(`[Upload JS] Reverted — "${name}" discarded, showing the UI-generated script again.`);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -774,10 +855,11 @@ function setStatus(type, deviceName = '-') {
 // ══════════════════════════════════════════════════════════════
 async function burnScript() {
     if (document.getElementById('btnBurn').classList.contains('disabled')) return;
-    const code     = generateMagiScript();
+    const code     = getActiveScriptCode();
     const bytes    = new TextEncoder().encode(code);
     const burnBtn  = document.getElementById('btnBurn');
-    logToConsole(`[Burn] Starting — ${bytes.length} bytes`, 'in');
+    const source   = state.customScriptCode !== null ? `uploaded file "${state.customScriptName}"` : 'generated script';
+    logToConsole(`[Burn] Starting — ${bytes.length} bytes (${source})`, 'in');
     burnBtn.classList.add('disabled');
     burnBtn.innerHTML = '<i class="ph ph-hourglass-high"></i> Uploading...';
 
@@ -795,11 +877,14 @@ async function burnScript() {
         }
         await sendBinary(new Uint8Array([CMD_FINALIZE]));
         await delay(200);
-        const filenameBytes = new TextEncoder().encode('remote_keypad');
+        const persistName   = state.customScriptCode !== null
+            ? state.customScriptName.replace(/\.js$/i, '')
+            : 'remote_keypad';
+        const filenameBytes = new TextEncoder().encode(persistName);
         const persistPkt    = new Uint8Array(1 + filenameBytes.length);
         persistPkt[0] = CMD_PERSIST; persistPkt.set(filenameBytes, 1);
         await sendBinary(persistPkt);
-        logToConsole("[Burn] Done! 'remote_keypad' saved to flash.", "success");
+        logToConsole(`[Burn] Done! '${persistName}' saved to flash.`, "success");
         const led = document.getElementById('hardwareLed');
         led.className = 'hardware-led led-green';
         setTimeout(() => { led.className = 'hardware-led'; }, 800);

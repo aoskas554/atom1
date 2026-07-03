@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MagiPortal — Electricks Remote Configurator</title>
+    <meta name="description" content="Web-based configurator and diagnostic tool for the Electricks 12-button programmable remote. Supports BLE and USB connection, MagiScript code generation, and AI-powered diagnostics.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+    
+    <!-- Prism.js syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- ─── HEADER ─────────────────────────────────────────────── -->
+        <header class="app-header">
+            <div class="header-logo">
+                <i class="ph-fill ph-magic-wand logo-icon"></i>
+                <div class="logo-text">
+                    <h1>MagiPortal</h1>
+                    <span>Electricks Keypad Configurator</span>
+                </div>
+            </div>
+            
+            <div class="status-bar glass-panel">
+                <div class="connection-controls">
+                    <button id="btnConnectBle" class="btn btn-primary btn-ble">
+                        <i class="ph-bold ph-bluetooth"></i> Connect BLE
+                    </button>
+                    <button id="btnConnectBleAll" class="btn btn-secondary btn-ble-all" title="Show all nearby BLE devices — use this if 'Connect BLE' fails">
+                        <i class="ph-bold ph-bluetooth-slash"></i> Scan All
+                    </button>
+                    <button id="btnConnectSerial" class="btn btn-secondary btn-serial">
+                        <i class="ph-bold ph-usb"></i> Connect USB
+                    </button>
+                    <button id="btnDisconnect" class="btn btn-danger hidden">
+                        <i class="ph-bold ph-power"></i> Disconnect
+                    </button>
+                    <!-- ★ DIAGNOSTIC BUTTON ★ -->
+                    <button id="btnDiagnostic" class="btn btn-diagnostic disabled">
+                        <i class="ph-bold ph-stethoscope"></i> Diagnostic
+                    </button>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <div class="device-status">
+                    <div class="status-item">
+                        <span class="label">Status</span>
+                        <span id="statusIndicator" class="value badge badge-disconnected">Disconnected</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Device</span>
+                        <span id="txtDeviceName" class="value">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Battery</span>
+                        <span id="txtBattery" class="value"><i class="ph ph-battery-warning"></i> -</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="label">Firmware</span>
+                        <span id="txtFirmware" class="value">-</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ─── MAIN WORKSPACE ────────────────────────────────────── -->
+        <main class="app-main">
+            <!-- Left Panel: Configuration -->
+            <section class="workspace-column left-column">
+                <!-- Device Interface Layout -->
+                <div class="card glass-panel device-card">
+                    <div class="card-header">
+                        <h2><i class="ph ph-cpu"></i> Keypad Layout</h2>
+                        <span class="subtitle">Select a button to configure its value</span>
+                    </div>
+                    
+                    <div class="device-mockup-wrapper">
+                        <div class="hardware-remote">
+                            <div class="hardware-top-bar">
+                                <div class="hardware-brand">ELECTRICKS</div>
+                                <div id="hardwareLed" class="hardware-led"></div>
+                            </div>
+                            <div id="keypadGrid" class="keypad-grid"></div>
+                            <div class="hardware-footer">
+                                <div class="mic-grill"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Selected Button Editor Pane -->
+                    <div id="buttonEditorPane" class="button-editor-pane">
+                        <div class="pane-header">
+                            <h3 id="txtSelectedButtonTitle">Configure Button 0</h3>
+                            <span class="badge badge-accent">Pin Mapping</span>
+                        </div>
+                        
+                        <div class="editor-row">
+                            <div class="form-group">
+                                <label for="selButtonAction">Action Type</label>
+                                <select id="selButtonAction" class="form-control">
+                                    <option value="number">Numeric Keypad Value (1 - 12)</option>
+                                    <option value="word">HID Text / Word Macro</option>
+                                    <option value="key">HID System Key Tap</option>
+                                    <option value="none">Disabled / No Action</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div id="ctxActionNumber" class="editor-row action-ctx">
+                            <div class="form-group">
+                                <label for="numKeyValue">Numeric Value</label>
+                                <div class="range-value-display">
+                                    <input type="range" id="numKeyValue" min="1" max="12" value="1" class="slider">
+                                    <span id="lblKeyValue" class="slider-val">1</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="ctxActionWord" class="editor-row action-ctx hidden">
+                            <div class="form-group">
+                                <label for="txtKeyWord">Word / Text to type</label>
+                                <input type="text" id="txtKeyWord" class="form-control" placeholder="e.g. Ace of Spades">
+                            </div>
+                        </div>
+                        
+                        <div id="ctxActionKey" class="editor-row action-ctx hidden">
+                            <div class="form-group">
+                                <label for="selSystemKey">System Key</label>
+                                <select id="selSystemKey" class="form-control">
+                                    <option value="#ENTER">Enter / Return</option>
+                                    <option value="#BACKSPACE">Backspace</option>
+                                    <option value="#TAB">Tab</option>
+                                    <option value="#SPACE">Space</option>
+                                    <option value="#ESC">Escape</option>
+                                    <option value="#UP">Arrow Up</option>
+                                    <option value="#DOWN">Arrow Down</option>
+                                    <option value="#LEFT">Arrow Left</option>
+                                    <option value="#RIGHT">Arrow Right</option>
+                                    <option value="#PLAY_PAUSE">Media Play/Pause</option>
+                                    <option value="#VOLUME_UP">Volume Up</option>
+                                    <option value="#VOLUME_DOWN">Volume Down</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Global Settings -->
+                <div class="card glass-panel settings-card">
+                    <div class="card-header">
+                        <h2><i class="ph ph-sliders"></i> Global Configuration</h2>
+                        <span class="subtitle">Customize logic, feedback, and confirmation</span>
+                    </div>
+                    
+                    <div class="settings-grid">
+                        <div class="form-group">
+                            <label for="numDelay">Sum Timeout Delay</label>
+                            <div class="range-value-display">
+                                <input type="range" id="numDelay" min="10" max="100" value="30" step="5" class="slider">
+                                <span id="lblDelayValue" class="slider-val">3.0s</span>
+                            </div>
+                            <span class="help-text">Seconds of inactivity before sending sum total</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="selLedColor">LED Feedback</label>
+                            <select id="selLedColor" class="form-control">
+                                <option value="w">Blink White</option>
+                                <option value="r">Blink Red</option>
+                                <option value="g">Blink Green</option>
+                                <option value="b">Blink Blue</option>
+                                <option value="y">Blink Yellow</option>
+                                <option value="c">Blink Cyan</option>
+                                <option value="p">Blink Purple</option>
+                                <option value="o">Blink Orange</option>
+                                <option value="off">LED Disabled</option>
+                            </select>
+                            <span class="help-text">Color flashed when a key is tapped</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="selVibePattern">Vibration Feedback</label>
+                            <select id="selVibePattern" class="form-control">
+                                <option value=".">Short Pulse (Soft)</option>
+                                <option value="-">Long Pulse (Medium)</option>
+                                <option value="..">Double Pulse</option>
+                                <option value="off">Vibration Disabled</option>
+                            </select>
+                            <span class="help-text">Haptic pulse triggered on keypress</span>
+                        </div>
+                        
+                        <div class="form-group check-group">
+                            <label class="checkbox-container">
+                                <input type="checkbox" id="chkAutoSubmit" checked>
+                                <span class="checkmark"></span>
+                                Auto-Submit Total
+                            </label>
+                            <span class="help-text">Send "Enter" key after typing total sum</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ★ PRESETS LIBRARY ★ -->
+                <div class="card glass-panel presets-card">
+                    <div class="card-header">
+                        <h2><i class="ph ph-archive-box"></i> Preset Library</h2>
+                        <span class="subtitle">Saved diagnostic captures &amp; custom configurations</span>
+                    </div>
+                    <div id="presetsList" class="presets-list">
+                        <div class="presets-empty">
+                            <i class="ph ph-folder-open"></i>
+                            <span>No presets saved yet. Run a diagnostic to capture a preset.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Right Panel: Code & Logs -->
+            <section class="workspace-column right-column">
+                <!-- Sandbox Simulator -->
+                <div class="card glass-panel simulator-card">
+                    <div class="card-header">
+                        <h2><i class="ph ph-game-controller"></i> Sandbox Simulator</h2>
+                        <span class="subtitle">Test your settings below before programming hardware</span>
+                    </div>
+                    
+                    <div class="simulator-wrapper">
+                        <div class="sandbox-input-group">
+                            <label for="txtSandbox">Simulated HID Text Field Input</label>
+                            <textarea id="txtSandbox" class="form-control code-font" placeholder="Click buttons on the keypad to simulate typing..." readonly></textarea>
+                            <div class="sandbox-controls">
+                                <span class="sandbox-tip"><i class="ph ph-info"></i> Virtual keyboard redirection is active</span>
+                                <button id="btnClearSandbox" class="btn btn-sm btn-clear">
+                                    <i class="ph ph-trash"></i> Clear Text
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="simulator-hud">
+                            <div class="hud-item">
+                                <i class="ph ph-calculator"></i>
+                                <span>Running Total: <strong id="simRunningTotal">0</strong></span>
+                            </div>
+                            <div class="hud-item">
+                                <i class="ph ph-timer"></i>
+                                <span>Timer Status: <span id="simTimerStatus" class="value badge badge-neutral">Idle</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Code & Console Tabs -->
+                <div class="card glass-panel tabs-card">
+                    <div class="tabs-header">
+                        <div class="tab-buttons">
+                            <button id="tabBtnCode" class="tab-button active" data-tab="tabCode">
+                                <i class="ph ph-code"></i> MagiScript Preview
+                            </button>
+                            <button id="tabBtnConsole" class="tab-button" data-tab="tabConsole">
+                                <i class="ph ph-terminal"></i> Live Device Console
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <!-- Code Tab -->
+                        <div id="tabCode" class="tab-pane active">
+                            <div class="code-header">
+                                <span id="codeTitleLabel" class="code-title">Generated App: <code>remote_keypad.js</code></span>
+                                <div class="code-header-actions">
+                                    <button id="btnUploadJs" class="btn-copy" title="Load a .js file from your computer to program the remote">
+                                        <i class="ph ph-upload-simple"></i> Upload JS
+                                    </button>
+                                    <input type="file" id="fileUploadJs" accept=".js,text/javascript" hidden>
+                                    <button id="btnRevertGenerated" class="btn-copy hidden" title="Discard the uploaded file and go back to the generated script">
+                                        <i class="ph ph-arrow-counter-clockwise"></i> Revert
+                                    </button>
+                                    <button id="btnCopyCode" class="btn-copy" title="Copy code">
+                                        <i class="ph ph-copy"></i> Copy
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="customScriptBanner" class="custom-script-banner hidden">
+                                <i class="ph-bold ph-file-js"></i>
+                                <span>Custom file loaded: <strong id="customScriptFilename"></strong> — this is what will be programmed to the remote, not the UI-generated script.</span>
+                            </div>
+                            <pre class="code-pre"><code id="codeBlock" class="language-javascript"></code></pre>
+                        </div>
+                        
+                        <!-- Console Tab -->
+                        <div id="tabConsole" class="tab-pane">
+                            <div class="console-wrapper">
+                                <div id="consoleLog" class="console-log code-font">
+                                    <div class="log-line system-msg">[System] Ready. Logs will stream here once connected.</div>
+                                </div>
+                                <div class="console-controls">
+                                    <button id="btnClearConsole" class="btn btn-sm btn-clear">
+                                        <i class="ph ph-x-circle"></i> Clear Console
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- ─── ACTION FOOTER ─────────────────────────────────────── -->
+        <footer class="app-footer">
+            <div class="footer-actions">
+                <button id="btnRestoreDefaults" class="btn btn-secondary">
+                    <i class="ph ph-arrow-counter-clockwise"></i> Reset Defaults
+                </button>
+                <button id="btnDownload" class="btn btn-secondary">
+                    <i class="ph ph-download"></i> Save JavaScript File
+                </button>
+                <button id="btnBurn" class="btn btn-success btn-burn disabled">
+                    <i class="ph-bold ph-lightning-fill"></i> Upload &amp; Program Remote
+                </button>
+            </div>
+            <div class="footer-meta">
+                <span>MagiPortal v2.5.0 &bull; Electricks Developer Kit</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         ★ DIAGNOSTIC MODAL ★
+         ═══════════════════════════════════════════════════════════ -->
+    <div id="diagnosticModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="diagModalTitle">
+        <div class="modal-panel glass-panel">
+            <!-- Modal Header -->
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="ph-bold ph-stethoscope modal-icon"></i>
+                    <div>
+                        <h2 id="diagModalTitle">Remote Diagnostic</h2>
+                        <span class="subtitle">Extract, analyse, and save device code as a preset</span>
+                    </div>
+                </div>
+                <button id="btnCloseDiagModal" class="btn-icon" aria-label="Close diagnostic modal">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+
+            <!-- Steps Progress Bar -->
+            <div class="diag-progress">
+                <div class="diag-step" id="diagStep1" data-step="1">
+                    <div class="step-dot">1</div>
+                    <span>List Scripts</span>
+                </div>
+                <div class="diag-step-line"></div>
+                <div class="diag-step" id="diagStep2" data-step="2">
+                    <div class="step-dot">2</div>
+                    <span>Extract Code</span>
+                </div>
+                <div class="diag-step-line"></div>
+                <div class="diag-step" id="diagStep3" data-step="3">
+                    <div class="step-dot">3</div>
+                    <span>AI Analysis</span>
+                </div>
+                <div class="diag-step-line"></div>
+                <div class="diag-step" id="diagStep4" data-step="4">
+                    <div class="step-dot">4</div>
+                    <span>Save Preset</span>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="modal-body">
+
+                <!-- PHASE 0: Idle / Start -->
+                <div id="diagPhaseStart" class="diag-phase">
+                    <div class="diag-info-box">
+                        <i class="ph ph-info"></i>
+                        <div>
+                            <p><strong>What Diagnostic does:</strong></p>
+                            <ol>
+                                <li>Queries the device for all saved MagiScript files.</li>
+                                <li>Downloads the source code of the selected script via BLE/USB.</li>
+                                <li>Sends the code to Gemini AI for plain-English behaviour analysis.</li>
+                                <li>Lets you save the result as a <code>.txt</code> preset file.</li>
+                            </ol>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:16px">
+                        <label for="txtGeminiKey">Gemini API Key <span class="badge badge-accent" style="font-size:11px">Required for AI analysis</span></label>
+                        <input type="password" id="txtGeminiKey" class="form-control" placeholder="AIza...">
+                        <span class="help-text">Your key is stored only in memory for this session and never transmitted elsewhere.</span>
+                    </div>
+                    <div class="diag-actions">
+                        <button id="btnRunDiagnostic" class="btn btn-diagnostic-run">
+                            <i class="ph-bold ph-play"></i> Start Diagnostic
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PHASE 1: Script List -->
+                <div id="diagPhaseList" class="diag-phase hidden">
+                    <div class="diag-status-line" id="diagStatusLine">
+                        <div class="spinner"></div>
+                        <span id="diagStatusText">Querying device for saved scripts…</span>
+                    </div>
+                    <div id="diagScriptList" class="diag-script-list hidden">
+                        <p class="diag-section-label"><i class="ph ph-files"></i> Scripts found on device — select one to extract:</p>
+                        <div id="diagScriptItems" class="diag-script-items"></div>
+                    </div>
+                </div>
+
+                <!-- PHASE 2: Extracted Code View -->
+                <div id="diagPhaseCode" class="diag-phase hidden">
+                    <div class="diag-section-label">
+                        <i class="ph ph-file-js"></i> Extracted source: <code id="diagExtractedFilename">-</code>
+                    </div>
+                    <pre class="code-pre diag-code-pre"><code id="diagCodeBlock" class="language-javascript"></code></pre>
+                    <div class="diag-actions">
+                        <button id="btnAnalyseCode" class="btn btn-diagnostic-run">
+                            <i class="ph-bold ph-robot"></i> Analyse with Gemini AI
+                        </button>
+                        <button id="btnSkipAnalysis" class="btn btn-secondary">
+                            Skip AI &rarr; Save Preset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PHASE 3: AI Analysis Result -->
+                <div id="diagPhaseAnalysis" class="diag-phase hidden">
+                    <div class="diag-status-line" id="diagAnalysisStatus">
+                        <div class="spinner"></div>
+                        <span>Sending to Gemini AI for analysis…</span>
+                    </div>
+                    <div id="diagAnalysisResult" class="diag-analysis-result hidden">
+                        <div class="analysis-header">
+                            <i class="ph-bold ph-robot analysis-icon"></i>
+                            <span>Gemini AI Behaviour Report</span>
+                        </div>
+                        <div id="diagAnalysisText" class="analysis-body"></div>
+                    </div>
+                    <div class="diag-actions" id="diagAfterAnalysisActions" style="display:none">
+                        <button id="btnProceedToSave" class="btn btn-diagnostic-run">
+                            <i class="ph-bold ph-floppy-disk"></i> Save as Preset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PHASE 4: Save Preset -->
+                <div id="diagPhaseSave" class="diag-phase hidden">
+                    <div class="diag-save-form">
+                        <div class="form-group">
+                            <label for="txtPresetName">Preset Name</label>
+                            <input type="text" id="txtPresetName" class="form-control" placeholder="e.g. SB Watch BLE Auto-Connect">
+                        </div>
+                        <div class="form-group">
+                            <label for="txtPresetNotes">Notes / Description</label>
+                            <textarea id="txtPresetNotes" class="form-control" placeholder="Describe what this remote configuration does…" style="min-height:80px"></textarea>
+                        </div>
+                        <div class="diag-actions">
+                            <button id="btnSavePreset" class="btn btn-success">
+                                <i class="ph-bold ph-floppy-disk"></i> Save to Library
+                            </button>
+                            <button id="btnDownloadPresetTxt" class="btn btn-secondary">
+                                <i class="ph ph-download"></i> Download as .txt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /.modal-body -->
+        </div><!-- /.modal-panel -->
+    </div><!-- /#diagnosticModal -->
+    
+    <!-- PrismJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <!-- App -->
+    <script src="app.js"></script>
+</body>
+</html>
